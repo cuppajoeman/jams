@@ -17,6 +17,17 @@ constexpr double epsilon = 1e-3;
 
 unsigned int bpm_new = 60;
 
+// Custom hash for time_point to use in unordered_map
+struct time_point_hash {
+  std::size_t
+  operator()(const std::chrono::steady_clock::time_point &tp) const {
+    return std::hash<std::int64_t>()(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            tp.time_since_epoch())
+            .count());
+  }
+};
+
 struct MidiEvent {
   int note;        // Note value (e.g., MIDI pitch)
   double velocity; // Velocity (0.0 - 1.0), unused if note off
@@ -50,13 +61,13 @@ public:
     os << "MidiEventNext { "
        << "channel: " << event.channel << ", bar_index: " << event.bar_index
        << ", note: " << event.note << ", velocity: " << std::fixed
-       << std::setprecision(2) << event.velocity << ", midi_velocity: " << event.midi_velocity  
+       << std::setprecision(2) << event.velocity
+       << ", midi_velocity: " << event.midi_velocity
        << ", is_note_on: " << (event.is_note_on ? "true" : "false")
        << ", bar_time_offset_sec: " << std::setprecision(3) << seconds << " }";
     return os;
   }
 };
-
 
 class Bar {
 public:
@@ -111,7 +122,8 @@ public:
     bar_duration_sec = (double)60 / bpm_new;
     bar_element_duration_sec = bar_duration_sec / num_matches;
 
-        std::cout << "bar_element_duration_sec " << bar_element_duration_sec  << std::endl;
+    std::cout << "bar_element_duration_sec " << bar_element_duration_sec
+              << std::endl;
 
     std::regex note_regex(R"(\d+[',]*)");
 
@@ -149,9 +161,13 @@ public:
 };
 
 class BarSequence {
-  bool loop_forever;
+public:
+  bool loop_forever; // loops forever starting from the start index? right now
+                     // it starts from 0, kinda bad
   unsigned int num_repetitions;
+  unsigned int current_repetition = 0;
   unsigned int channel;
+  unsigned int start_bar_index;
 
   std::string trim(const std::string &s) {
     auto begin = s.begin();
@@ -168,20 +184,38 @@ class BarSequence {
 
 public:
   std::vector<Bar> bars;
-  BarSequence(const std::string &bar_sequence_str, unsigned int channel,
-              bool loop_forever, unsigned int num_repetitions = 0)
-      : loop_forever(loop_forever), num_repetitions(num_repetitions),
-        channel(channel) {
 
-    std::stringstream ss(bar_sequence_str);
-    std::string bar_str;
+  bool can_play_bar_from_bar_sequence(unsigned int bar_index) {
 
-    while (std::getline(ss, bar_str, '|')) {
-      bar_str = trim(bar_str);
-      if (!bar_str.empty()) {
-        bars.emplace_back(bar_str, channel);
-      }
+    if (loop_forever) {
+      return true;
     }
+
+    // if we had | (0 2 4 7) (4) | (2) (5) |, then this bar seq has two bars,
+    // suppose we want to play it for two repetitions starting from bar 0
+    // then our last bar to play on would be 3, therefore in the equation below
+    // we have 0 + 2 * 2 - 1 = 3, which explains the -1
+    unsigned int last_bar_to_play_on =
+        start_bar_index + num_repetitions * bars.size() - 1;
+
+    return start_bar_index <= bar_index and bar_index <= last_bar_to_play_on;
+  }
+
+  BarSequence(const std::string &bar_sequence_str, unsigned int channel,
+              bool loop_forever, unsigned int num_repetitions = 0,
+              unsigned int start_bar_index = 0)
+      : loop_forever(loop_forever), num_repetitions(num_repetitions),
+        channel(channel), start_bar_index(start_bar_index) {
+    parse_and_store_bars({bar_sequence_str});
+  }
+
+  BarSequence(const std::vector<std::string> &bar_sequence_vec,
+              unsigned int channel, bool loop_forever,
+              unsigned int num_repetitions = 0,
+              unsigned int start_bar_index = 0)
+      : loop_forever(loop_forever), num_repetitions(num_repetitions),
+        channel(channel), start_bar_index(start_bar_index) {
+    parse_and_store_bars(bar_sequence_vec);
   }
 
   friend std::ostream &operator<<(std::ostream &os, const BarSequence &seq) {
@@ -198,6 +232,21 @@ public:
     os << "  ]\n"
        << "}";
     return os;
+  }
+
+private:
+  void parse_and_store_bars(const std::vector<std::string> &bar_sequences) {
+    for (const auto &bar_seq : bar_sequences) {
+      std::stringstream ss(bar_seq);
+      std::string bar_str;
+
+      while (std::getline(ss, bar_str, '|')) {
+        bar_str = trim(bar_str);
+        if (!bar_str.empty()) {
+          bars.emplace_back(bar_str, channel);
+        }
+      }
+    }
   }
 };
 
@@ -277,62 +326,6 @@ public:
 
   void add(const BarSequence &bar_seq) { bar_sequences.push_back(bar_seq); }
 
-  void add_sequence(const std::string &pattern, int channel) {
-    std::lock_guard<std::mutex> lock(mutex);
-    if (channel < 1 || channel > 16) {
-      std::cerr << "Invalid channel number!" << std::endl;
-      return;
-    }
-
-    // Split pattern into bars and add to the sequences map
-    std::vector<std::string> bars;
-    std::string current_bar;
-    for (char c : pattern) {
-      if (c == '|') {
-        if (!current_bar.empty()) {
-          bars.push_back(current_bar);
-          current_bar.clear();
-        }
-      } else {
-        current_bar += c;
-      }
-    }
-    if (!current_bar.empty()) {
-      bars.push_back(current_bar); // Add last bar if any
-    }
-
-    channel_to_pattern_bars[channel - 1] = bars;
-    current_ticks[channel - 1] = 0;
-  }
-
-  void add_note_collection_sequence(const std::string &pattern, int channel) {
-    std::lock_guard<std::mutex> lock(mutex);
-    if (channel < 1 || channel > 16) {
-      std::cerr << "Invalid channel number!" << std::endl;
-      return;
-    }
-
-    // Split pattern into bars and add to the sequences map
-    std::vector<std::string> bars;
-    std::string current_bar;
-    for (char c : pattern) {
-      if (c == '|') {
-        if (!current_bar.empty()) {
-          bars.push_back(current_bar);
-          current_bar.clear();
-        }
-      } else {
-        current_bar += c;
-      }
-    }
-    if (!current_bar.empty()) {
-      bars.push_back(current_bar); // Add last bar if any
-    }
-
-    channel_to_pattern_bars[channel - 1] = bars;
-    current_ticks[channel - 1] = 0;
-  }
-
   void set_bpm(double bpm) {
     using namespace std::chrono;
     tick_duration = duration_cast<nanoseconds>(duration<double>(60.0 / bpm));
@@ -342,84 +335,70 @@ public:
     std::cout << "Tick duration: " << seconds << " seconds\n";
   }
 
-  void tick() {
-    using namespace std::chrono;
-
-    std::chrono::steady_clock::time_point bar_start_time =
-        std::chrono::steady_clock::now();
-
-    std::chrono::steady_clock::time_point next_bar_time =
-        bar_start_time + tick_duration;
-
-    std::chrono::duration<double> elapsed_seconds =
-        next_bar_time - bar_start_time;
-
-    std::cout << "Elapsed bar time: " << elapsed_seconds.count()
-              << " seconds\n";
-
-    // Precompute note on/off times for all active channels for the first bar
-    std::unordered_map<int, std::vector<MidiEvent>>
-        channel_to_current_bar_midi_events;
-
-    recompute_note_events(channel_to_current_bar_midi_events);
-
-    print_channel_to_note_events(channel_to_current_bar_midi_events,
-                                 bar_start_time);
-
-    // Start processing the bar
-    while (steady_clock::now() < next_bar_time) {
-      steady_clock::time_point now = steady_clock::now();
-
-      // Handle note events for each channel
-      for (int channel = 1; channel <= 16; ++channel) {
-        if (channel_to_current_bar_midi_events.find(channel) ==
-                channel_to_current_bar_midi_events.end() ||
-            channel_to_current_bar_midi_events[channel].empty())
-          continue;
-
-        for (auto &event : channel_to_current_bar_midi_events[channel]) {
-          auto event_time_ms =
-              duration_cast<milliseconds>(event.time.time_since_epoch())
-                  .count();
-          auto now_time_ms =
-              duration_cast<milliseconds>(now.time_since_epoch()).count();
-
-          if (event.time <= now) {
-            if (event.is_note_on) {
-              // Play note on
-              send_note_on(event.note, 50,
-                           channel); // Assuming note and velocity
-            } else {
-              // Turn note off
-              send_note_off(event.note, channel);
-            }
-
-            // Mark event as processed
-            event.time = steady_clock::time_point::max(); // Processed
-          }
-        }
-      }
-
-      std::this_thread::sleep_for(milliseconds(1));
-    }
-
-    std::cout << "just finished a bar" << std::endl;
-
-    // Move to the next bar after current one finishes
-    bar_start_time = next_bar_time;
-    next_bar_time =
-        bar_start_time +
-        std::chrono::duration_cast<std::chrono::nanoseconds>(tick_duration);
-
-    // Move to the next tick for each channel
-    for (int channel = 1; channel <= 16; ++channel) {
-      if (!channel_to_pattern_bars[channel - 1].empty()) {
-        ++current_ticks[channel - 1];
-      }
-    }
-  }
-
   unsigned int current_bar_index = 0;
+
+  std::unordered_map<std::chrono::steady_clock::time_point,
+                     std::vector<MidiEventNext>, time_point_hash>
+  generate_note_events_for_current_bar_for_all_bar_sequences(
+      std::chrono::steady_clock::time_point bar_start_time) {
+
+    std::unordered_map<std::chrono::steady_clock::time_point,
+                       std::vector<MidiEventNext>, time_point_hash>
+        time_to_midi_events;
+
+    // Build the time_to_midi_events map
+    for (auto &bar_seq : bar_sequences) {
+
+      if (not bar_seq.can_play_bar_from_bar_sequence(current_bar_index)) {
+        continue;
+      }
+
+      std::cout << "Processing bar sequence...\n";
+      const auto &current_bar =
+          bar_seq.bars[current_bar_index % bar_seq.bars.size()];
+
+      std::cout << "Current bar index: " << current_bar_index
+                << ", Number of bars in sequence: " << bar_seq.bars.size()
+                << '\n';
+
+      for (const auto &note_on_event : current_bar.note_on_midi_events) {
+        std::chrono::steady_clock::time_point note_on_time =
+            bar_start_time +
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                note_on_event.bar_time_offset_sec);
+
+        std::cout << "Note ON event - Note: " << note_on_event.note
+                  << ", Time: " << note_on_time.time_since_epoch().count()
+                  << " ns\n";
+
+        // Add note on event
+        time_to_midi_events[note_on_time].push_back(note_on_event);
+
+        // Create and add note off event
+        std::chrono::steady_clock::time_point note_off_time =
+            note_on_time +
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(
+                    current_bar.bar_element_duration_sec - epsilon));
+
+        MidiEventNext note_off_event(note_on_event.channel,
+                                     note_on_event.bar_index,
+                                     note_on_event.note, 0, false);
+
+        std::cout << "Note OFF event - Note: " << note_on_event.note
+                  << ", Time: " << note_off_time.time_since_epoch().count()
+                  << " ns\n";
+
+        time_to_midi_events[note_off_time].push_back(note_off_event);
+      }
+
+      if (current_bar_index != 0 and
+          current_bar_index % bar_seq.bars.size() == 0)
+        bar_seq.current_repetition++;
+    }
+
+    return time_to_midi_events;
+  }
 
   void process_current_bar() {
     using namespace std::chrono;
@@ -433,57 +412,12 @@ public:
                      .count()
               << " seconds\n";
 
-    // Custom hash for time_point to use in unordered_map
-    struct time_point_hash {
-      std::size_t operator()(const steady_clock::time_point &tp) const {
-        return std::hash<std::int64_t>()(
-            duration_cast<nanoseconds>(tp.time_since_epoch()).count());
-      }
-    };
-
     // Change unordered_map to map time_point to a vector of MidiEventNext
     std::unordered_map<steady_clock::time_point, std::vector<MidiEventNext>,
                        time_point_hash>
-        time_to_midi_events;
-
-    // Build the time_to_midi_events map
-    for (auto &bar_seq : bar_sequences) {
-      std::cout << "Processing bar sequence...\n";
-      const auto &current_bar =
-          bar_seq.bars[current_bar_index % bar_seq.bars.size()];
-
-      std::cout << "Current bar index: " << current_bar_index
-                << ", Number of bars in sequence: " << bar_seq.bars.size()
-                << '\n';
-
-      for (const auto &note_on_event : current_bar.note_on_midi_events) {
-        steady_clock::time_point note_on_time =
-            bar_start_time + duration_cast<steady_clock::duration>(
-                                 note_on_event.bar_time_offset_sec);
-
-        std::cout << "Note ON event - Note: " << note_on_event.note
-                  << ", Time: " << note_on_time.time_since_epoch().count()
-                  << " ns\n";
-
-        // Add note on event
-        time_to_midi_events[note_on_time].push_back(note_on_event);
-
-        // Create and add note off event
-        steady_clock::time_point note_off_time =
-            note_on_time + std::chrono::duration_cast<steady_clock::duration>(
-                               std::chrono::duration<double>(
-                                   current_bar.bar_element_duration_sec - epsilon));
-
-        MidiEventNext note_off_event(note_on_event.channel, note_on_event.bar_index, note_on_event.note,
-                                      0, false);
-
-        std::cout << "Note OFF event - Note: " << note_on_event.note
-                  << ", Time: " << note_off_time.time_since_epoch().count()
-                  << " ns\n";
-
-        time_to_midi_events[note_off_time].push_back(note_off_event);
-      }
-    }
+        time_to_midi_events =
+            generate_note_events_for_current_bar_for_all_bar_sequences(
+                bar_start_time);
 
     std::cout << "Time to MIDI events map built. Total events: "
               << time_to_midi_events.size() << '\n';
@@ -517,143 +451,11 @@ public:
       std::this_thread::sleep_for(milliseconds(1));
     }
 
-        current_bar_index ++;
+    current_bar_index++;
     std::cout << "Just finished a bar\n";
   }
 
 private:
-  void recompute_note_events(
-      std::unordered_map<int, std::vector<MidiEvent>> &channel_to_note_events) {
-    using namespace std::chrono;
-
-    std::cout << "[recompute_note_events] Start recomputing note events.\n";
-
-    steady_clock::time_point current_time = steady_clock::now();
-
-    // For each active channel, compute the note on and off times for the
-    // current bar
-    for (int channel = 1; channel <= 16; ++channel) {
-      if (channel_to_pattern_bars[channel - 1].empty())
-        continue;
-
-      std::cout << "  Processing channel " << channel << "...\n";
-
-      // the problem is here with current ticks
-      const std::string &current_bar =
-          channel_to_pattern_bars[channel - 1]
-                                 [current_ticks[channel - 1] %
-                                  channel_to_pattern_bars[channel - 1].size()];
-
-      std::cout << "processing bar: " << current_bar << std::endl;
-
-      double substep_seconds =
-          duration_cast<duration<double>>(tick_duration).count() /
-          count_bar_elements(current_bar);
-
-      std::cout << "sss: " << substep_seconds << std::endl;
-
-      steady_clock::time_point bar_start_time = current_time;
-
-      size_t bar_index = 0;
-
-      for (size_t i = 0; i < current_bar.size(); ++i) {
-        char bar_symbol = current_bar[i];
-
-        if (bar_symbol == '-') {
-          bar_index++;
-          continue;
-        }
-
-        steady_clock::time_point note_on_time =
-            bar_start_time + duration_cast<steady_clock::duration>(
-                                 duration<double>(bar_index * substep_seconds));
-        std::cout << "just computed note on time with bar_index = " << bar_index
-                  << std::endl;
-
-        steady_clock::time_point note_off_time =
-            note_on_time + duration_cast<steady_clock::duration>(
-                               duration<double>(substep_seconds - epsilon));
-
-        float velocity = 0.4;
-        if (bar_symbol == 'x') {
-          MidiEvent note_on_event = {/*note*/ 60, /*velocity*/ velocity,
-                                     /*is_note_on*/ true, note_on_time};
-          MidiEvent note_off_event = {/*note*/ 60, /*velocity*/ velocity,
-                                      /*is_note_on*/ false, note_off_time};
-
-          channel_to_note_events[channel].push_back(note_on_event);
-          std::cout << "    Added NOTE ON  (note: 60) at time "
-                    << duration_cast<milliseconds>(note_on_time - current_time)
-                           .count()
-                    << " ms\n";
-
-          channel_to_note_events[channel].push_back(note_off_event);
-          std::cout << "    Added NOTE OFF (note: 60) at time "
-                    << duration_cast<milliseconds>(note_off_time - current_time)
-                           .count()
-                    << " ms\n";
-
-          ++bar_index; // advance only when a time step is used
-        } else if (bar_symbol == '(') {
-
-          size_t j = i + 1;
-          std::vector<int> notes;
-          while (j < current_bar.size() && current_bar[j] != ')') {
-            if (isdigit(current_bar[j]) || current_bar[j] == '-') {
-              int start = j;
-              while (j < current_bar.size() &&
-                     (isdigit(current_bar[j]) || current_bar[j] == '-')) {
-                ++j;
-              }
-              int note = std::stoi(current_bar.substr(start, j - start));
-
-              int modification = 0;
-              while (j < current_bar.size() &&
-                     (current_bar[j] == '\'' || current_bar[j] == ',')) {
-                if (current_bar[j] == '\'') {
-                  modification += 12;
-                } else if (current_bar[j] == ',') {
-                  modification -= 12;
-                }
-                ++j;
-              }
-
-              note += modification;
-              notes.push_back(note);
-            } else {
-              ++j;
-            }
-          }
-
-          for (int note : notes) {
-            note += 60;
-            MidiEvent note_on_event = {note, velocity, true, note_on_time};
-            MidiEvent note_off_event = {note, velocity, false, note_off_time};
-
-            channel_to_note_events[channel].push_back(note_on_event);
-            std::cout << "    Added NOTE ON  (note: " << note << ") at time "
-                      << duration_cast<milliseconds>(note_on_time -
-                                                     current_time)
-                             .count()
-                      << " ms\n";
-
-            channel_to_note_events[channel].push_back(note_off_event);
-            std::cout << "    Added NOTE OFF (note: " << note << ") at time "
-                      << duration_cast<milliseconds>(note_off_time -
-                                                     current_time)
-                             .count()
-                      << " ms\n";
-          }
-
-          i = j;       // Skip to after closing ')'
-          ++bar_index; // Treat group as one time step
-        }
-      }
-    }
-
-    std::cout << "[recompute_note_events] Done recomputing note events.\n";
-  }
-
   void send_note_on(int note, int velocity = 100, int channel = 1) {
     if (channel < 1 || channel > 16) {
       return; // Handle invalid channel number
@@ -677,10 +479,6 @@ private:
   }
 
   std::unique_ptr<RtMidiOut> midi_out;
-  std::unordered_map<int, std::vector<std::string>>
-      channel_to_pattern_bars; // Map of sequences for each channel
-  std::unordered_map<int, size_t>
-      current_ticks; // Map of current tick for each channel
   std::chrono::nanoseconds tick_duration{
       std::chrono::duration_cast<std::chrono::nanoseconds>(
           std::chrono::duration<double>{0.5})};
@@ -731,16 +529,33 @@ int main() {
 
   // Bar b("(5' 2,, 3'') (0 4 7 11)", 2);
   // BarSequence bs("(5 2 4) (0 4 7 11) | (2 5 9 0)", 1, true);
-   
-  BarSequence bs("(0, 2 7 4') | (2 7 9 0' 2'') | (0, 2 9 11 4') | (2 5 4' 9 2)  ", 1, true);
+  //
+
+  std::vector<std::string> seq = {
+      "(0, 2 7 4') | (2 7 9 0' 2'') | (0, 2 9 11 4') | (2 5 4' 9 2)  ",
+      "(2 4 9 0') | (2 7 9 0' 2'') | (5, 2 0' 4') | (0,, 4, 7 4' 2'')  "};
+
+  std::vector<std::string> low_seq = {"(0,,) | (2,,) | (9,,,) | (7,,,)  ",
+                                      "(4,,) | (2,,) | (5,,) | (0,,)  "};
+
+  BarSequence bs(seq, 1, false, 2);
+  bs.start_bar_index = 2 * bs.bars.size();
+
+  // BarSequence bs(
+  //     "(0, 2 7 4') | (2 7 9 0' 2'') | (0, 2 9 11 4') | (2 5 4' 9 2)  ", 1,
+  //     false, 3);
+  BarSequence bs_low(low_seq, 1, false, 4, 0);
+
   BarSequence bs2("(0) | (2'') | (4') | (7) | (11,)", 3, true);
+  BarSequence bs2_min("(0) | (2'') | (3') | (7) | (10,)", 3, true);
 
   sequencer.add(bs);
-  sequencer.add(bs2);
+  sequencer.add(bs_low);
+  // sequencer.add(bs2);
 
   std::cout << "bs: " << bs << std::endl;
 
-  sequencer.set_bpm(60);
+  sequencer.set_bpm(30);
   while (true) {
     sequencer.process_current_bar();
   }
