@@ -69,23 +69,22 @@ int main() {
   std::vector<std::string> low_seq = {"(0,,) | (2,,) | (9,,,) | (7,,,)  ",
                                       "(4,,) | (2,,) | (5,,) | (0,,)  "};
 
-  // BarSequence bs(seq, 1, false, 2);
-  // bs.start_bar_index = 2 * bs.bars.size();
-  // BarSequence bs_low(low_seq, 1, false, 4, 0);
-  //
-  // sequencer.add(bs);
-  // sequencer.add(bs_low);
-  //
-  // sequencer.set_bpm(60);
-  // while (true) {
-  //   sequencer.process_current_bar();
-  // }
+  JamFileData jam_data = load_jam_file("song.jam");
 
-  // TODO was working on this jam file and making sure that the | (...) - |
-  // syntax is accepted, so we need to do that as well, once that's in we have a
-  // vector of strings, in otherwords what we have above and thus we can pass
-  // those in to create bar sequences?
-  load_jam_file("song.jam");
+  std::cout << "jam file: " << jam_data << std::endl;
+
+  for (const PatternData &data : jam_data.arrangement) {
+    const auto &bar_sequence = jam_data.pattern_name_to_bars.at(data.name);
+    const auto &bar_channel = jam_data.pattern_name_to_channel.at(data.name);
+    Pattern p(bar_sequence, bar_channel, false, data.num_repeats,
+              data.start_bar);
+    sequencer.add(p);
+  }
+
+  sequencer.set_bpm(60);
+  while (true) {
+    sequencer.process_current_bar();
+  }
 
   return 0;
 }

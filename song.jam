@@ -1,37 +1,37 @@
 LEGEND START
-# based on hydrogen
-Kick: 36
-Stick: 37
-Snare: 38
-Hand: 39
-Snare: 40
-Floor: 41
-Hat Closed: 42
-Tom 2: 43
-Hat Pedal: 44
-Tom 1: 45
-Hat Open: 46
-Crash: 49
-Ride: 51
-Hat Semi-Open: 52
-Bell: 53
-Splash: 55
-Cowbell: 56
-Ride 2: 59
-Hat Semi-Open: 82
+# based on hydrogen then subtracting 60
+Kick: 0,,
+Stick: 1,,
+Snare: 2,,
+Hand: 3,,
+Snare: 4,,
+Floor: 5,,
+Hat Closed: 6,,
+Tom 2: 7,,
+Hat Pedal: 8,,
+Tom 1: 9,,
+Hat Open: 10,,
+Crash: 1,
+Ride: 3,
+Hat Semi-Open: 4,
+Bell: 5,
+Splash: 7,
+Cowbell: 8,
+Ride 2: 11,
+Hat Semi-Open: 10,
 LEGEND END
 
 PATTERNS START
 
-A:
+A(1):
 (0, 2 7 4') | (2 7 9 0' 2'') | (0, 2 9 11 4') | (2 5 4' 9 2) 
 (2 4 9 0') | (2 7 9 0' 2'') | (5, 2 0' 4') | (0,, 4, 7 4' 2'')
 
-B: 
+B(2): 
 (0,,) | (2,,) | (9,,,) | (7,,,)
 (4,,) | (2,,) | (5,,) | (0,,)
 
-C: 
+C(3): 
 (Hat Closed) |x-x-|x-x-|x-x-|x-x-|
 (Snare)      |----|x---|----|x---|
 (Kick)       |x---|----|x---|----|
@@ -39,9 +39,8 @@ C:
 PATTERNS END
 
 
-
-
 ARRANGEMENT START
+num_bars_per_block = 4
 
         A A A A A A 
 B B B B B B B B     B B B B

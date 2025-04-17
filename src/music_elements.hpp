@@ -1,9 +1,15 @@
 #ifndef MUSIC_ELEMENTS_HPP
 #define MUSIC_ELEMENTS_HPP
 
+#include <RtMidi.h>
 #include <chrono>
 #include <cstddef>
 #include <functional>
+#include <iostream>
+#include <mutex>
+#include <regex>
+#include <string>
+#include <thread>
 
 constexpr double epsilon = 1e-3;
 unsigned int bpm_new = 60;
@@ -67,7 +73,14 @@ public:
   double bar_element_duration_sec;
 
   bool is_valid_format(const std::string &str) {
-    std::regex pattern(R"((\(\s*\d+[',]*\s*(\d+[',]*\s*)*\)\s*)+)");
+    // (?:\s*\d+[',]*\s*)+: use a non-matching group for  2,, 3' 99' (at least
+    // one number in there)
+    // \( ... \) wrap literal parens around it
+    // or just a literal hiphen
+    // wrap the whole thing in (...\s*)+ match one more more of these objects
+    // with spaces between them
+    std::regex pattern(R"((\s*((\((?:\s*\d+[',]*\s*)+\))|-)\s*)+)");
+    std::cout << str << std::endl;
     return std::regex_match(str, pattern);
   }
 
@@ -102,8 +115,10 @@ public:
       return;
     }
 
-    // Match each parenthesized group
-    std::regex group_regex(R"(\(([^)]*)\))");
+    std::regex p(R"(\((?:\s*\d+[',]*\s*)*\)|-)");
+
+    // Match each parenthesized group or hiphen
+    std::regex group_regex(R"(\(([^)]*)\)|-)");
     auto groups_begin =
         std::sregex_iterator(pattern.begin(), pattern.end(), group_regex);
     auto groups_end = std::sregex_iterator();
@@ -121,6 +136,11 @@ public:
     unsigned int bar_index = 0;
     for (std::sregex_iterator it = groups_begin; it != groups_end; ++it) {
       std::string group_content = (*it)[1].str(); // inside the parens
+
+      if (group_content == "-") {
+        // it's a rhythmic rest
+        continue;
+      }
 
       auto notes_begin = std::sregex_iterator(group_content.begin(),
                                               group_content.end(), note_regex);
@@ -151,7 +171,7 @@ public:
   }
 };
 
-class BarSequence {
+class Pattern {
 public:
   bool loop_forever; // loops forever starting from the start index? right now
                      // it starts from 0, kinda bad
@@ -192,25 +212,24 @@ public:
     return start_bar_index <= bar_index and bar_index <= last_bar_to_play_on;
   }
 
-  BarSequence(const std::string &bar_sequence_str, unsigned int channel,
-              bool loop_forever, unsigned int num_repetitions = 0,
-              unsigned int start_bar_index = 0)
+  Pattern(const std::string &bar_sequence_str, unsigned int channel,
+          bool loop_forever, unsigned int num_repetitions = 0,
+          unsigned int start_bar_index = 0)
       : loop_forever(loop_forever), num_repetitions(num_repetitions),
         channel(channel), start_bar_index(start_bar_index) {
     parse_and_store_bars({bar_sequence_str});
   }
 
-  BarSequence(const std::vector<std::string> &bar_sequence_vec,
-              unsigned int channel, bool loop_forever,
-              unsigned int num_repetitions = 0,
-              unsigned int start_bar_index = 0)
+  Pattern(const std::vector<std::string> &bar_sequence_vec,
+          unsigned int channel, bool loop_forever,
+          unsigned int num_repetitions = 0, unsigned int start_bar_index = 0)
       : loop_forever(loop_forever), num_repetitions(num_repetitions),
         channel(channel), start_bar_index(start_bar_index) {
     parse_and_store_bars(bar_sequence_vec);
   }
 
-  friend std::ostream &operator<<(std::ostream &os, const BarSequence &seq) {
-    os << "BarSequence {\n"
+  friend std::ostream &operator<<(std::ostream &os, const Pattern &seq) {
+    os << "Pattern {\n"
        << "  loop_forever: " << (seq.loop_forever ? "true" : "false") << ",\n"
        << "  num_repetitions: " << seq.num_repetitions << ",\n"
        << "  channel: " << seq.channel << ",\n"
@@ -299,8 +318,8 @@ void print_channel_to_note_events(
 
 class Sequencer {
 public:
-  std::vector<BarSequence> bar_sequences;
-  unsigned int longest_number_of_bars_in_a_bar_seq = 0;
+  std::vector<Pattern> bar_sequences;
+  unsigned int largest_end_bar_for_any_pattern = 0;
 
   Sequencer() {
     try {
@@ -316,10 +335,11 @@ public:
     }
   }
 
-  void add(const BarSequence &bar_seq) {
+  void add(const Pattern &bar_seq) {
     bar_sequences.push_back(bar_seq);
-    if (bar_seq.bars.size() > longest_number_of_bars_in_a_bar_seq)
-      longest_number_of_bars_in_a_bar_seq = bar_seq.bars.size();
+    auto end_bar_index = bar_seq.start_bar_index + bar_seq.bars.size();
+    if (end_bar_index > largest_end_bar_for_any_pattern)
+      largest_end_bar_for_any_pattern = end_bar_index;
   }
 
   void set_bpm(double bpm) {
@@ -331,7 +351,7 @@ public:
     std::cout << "Tick duration: " << seconds << " seconds\n";
   }
 
-  unsigned int current_bar_index = 0;
+  unsigned int sequencer_bar_index = 0;
 
   std::unordered_map<std::chrono::steady_clock::time_point,
                      std::vector<MidiEventNext>, time_point_hash>
@@ -345,15 +365,15 @@ public:
     // Build the time_to_midi_events map
     for (auto &bar_seq : bar_sequences) {
 
-      if (not bar_seq.can_play_bar_from_bar_sequence(current_bar_index)) {
+      if (not bar_seq.can_play_bar_from_bar_sequence(sequencer_bar_index)) {
         continue;
       }
 
       std::cout << "Processing bar sequence...\n";
       const auto &current_bar =
-          bar_seq.bars[current_bar_index % bar_seq.bars.size()];
+          bar_seq.bars[sequencer_bar_index % bar_seq.bars.size()];
 
-      std::cout << "Current bar index: " << current_bar_index
+      std::cout << "Current bar index: " << sequencer_bar_index
                 << ", Number of bars in sequence: " << bar_seq.bars.size()
                 << '\n';
 
@@ -388,8 +408,8 @@ public:
         time_to_midi_events[note_off_time].push_back(note_off_event);
       }
 
-      if (current_bar_index != 0 and
-          current_bar_index % bar_seq.bars.size() == 0)
+      if (sequencer_bar_index != 0 and
+          sequencer_bar_index % bar_seq.bars.size() == 0)
         bar_seq.current_repetition++;
     }
 
@@ -402,6 +422,7 @@ public:
     steady_clock::time_point bar_start_time = steady_clock::now();
     steady_clock::time_point next_bar_time = bar_start_time + tick_duration;
 
+    std::cout << "processing bar: " << sequencer_bar_index << std::endl;
     std::cout << "Tick duration: "
               << std::chrono::duration_cast<std::chrono::duration<double>>(
                      tick_duration)
@@ -447,8 +468,8 @@ public:
       std::this_thread::sleep_for(milliseconds(1));
     }
 
-    current_bar_index++;
-    current_bar_index %= longest_number_of_bars_in_a_bar_seq;
+    sequencer_bar_index++;
+    sequencer_bar_index %= largest_end_bar_for_any_pattern;
     std::cout << "Just finished a bar\n";
   }
 

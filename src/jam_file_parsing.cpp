@@ -6,59 +6,81 @@ std::string trim(const std::string &s) {
   return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
 }
 
-LegendMap parse_legend(std::istream &in) {
-  LegendMap legend;
+std::unordered_map<std::string, std::string>
+parse_legend_to_symbol_to_note(std::istream &in) {
+  std::unordered_map<std::string, std::string> legend;
   std::string line;
   while (std::getline(in, line)) {
     if (line.find("LEGEND END") != std::string::npos)
       break;
-    std::regex entry_regex(R"((.*?):\s*(\d+))");
+    std::regex entry_regex(R"((.*?):\s*(\d+[',]*))");
     std::smatch match;
     if (std::regex_search(line, match, entry_regex)) {
       std::string name = match[1];
-      int midi = std::stoi(match[2]);
-      legend[name] = midi;
+      legend[name] = match[2];
     }
   }
   return legend;
 }
 
-PatternMap parse_patterns(std::istream &in, const LegendMap &legend) {
-  PatternMap patterns;
-  std::string line, current_pattern_name;
-  std::vector<std::string> current_lines;
+std::vector<std::string>
+flatten_bar_strings(const std::vector<std::string> &lines) {
+  std::vector<std::string> bars;
 
-  // here we're just defining a lambda
+  for (const std::string &line : lines) {
+    std::stringstream ss(line);
+    std::string bar;
+
+    while (std::getline(ss, bar, '|')) {
+      // Trim leading and trailing whitespace
+      size_t start = bar.find_first_not_of(" \t");
+      size_t end = bar.find_last_not_of(" \t");
+
+      if (start != std::string::npos && end != std::string::npos) {
+        bars.push_back(bar.substr(start, end - start + 1));
+      }
+    }
+  }
+
+  return bars;
+}
+
+std::pair<PatternMap, std::unordered_map<std::string, unsigned int>>
+parse_patterns(
+    std::istream &in,
+    const std::unordered_map<std::string, std::string> &symbol_to_midi_note) {
+  PatternMap pattern_name_to_bars;
+  std::unordered_map<std::string, unsigned int> pattern_name_to_channel;
+
+  std::string line, current_pattern_name;
+  std::vector<std::string> current_bars;
+
+  std::regex header_regex(R"(^\s*([A-Za-z0-9_]+)\((\d+)\))");
+
   auto flush_current = [&]() {
     if (current_pattern_name.empty())
       return;
-    bool is_grid = false;
 
-    for (const std::string &l : current_lines) {
-      std::cout << "looking at line: " << l << std::endl;
+    bool is_grid = false;
+    for (const std::string &l : current_bars) {
       if (l.find('x') != std::string::npos) {
-        std::cout << "its's a grid!" << std::endl;
         is_grid = true;
         break;
       }
     }
 
     if (is_grid) {
-      std::cout << "about to parse on the following: " << std::endl;
-      for (const auto &line : current_lines) {
-        std::cout << line << std::endl;
-      }
-      patterns[current_pattern_name] =
-          parse_grid_pattern(current_lines, legend, current_pattern_name);
+      pattern_name_to_bars[current_pattern_name] = parse_grid_pattern(
+          current_bars, symbol_to_midi_note, current_pattern_name);
     } else {
-      patterns[current_pattern_name] = current_lines;
+      pattern_name_to_bars[current_pattern_name] =
+          flatten_bar_strings(current_bars);
     }
 
     current_pattern_name.clear();
-    current_lines.clear();
+    current_bars.clear();
   };
 
-  // now we iterate over the input
   while (std::getline(in, line)) {
     if (line.find("PATTERNS END") != std::string::npos)
       break;
@@ -67,46 +89,115 @@ PatternMap parse_patterns(std::istream &in, const LegendMap &legend) {
     if (trimmed.empty())
       continue;
 
-    std::cout << "iterating on line: " << trimmed << std::endl;
-
     bool found_new_pattern = trimmed.back() == ':';
     if (found_new_pattern) {
       flush_current();
-      current_pattern_name = trimmed.substr(0, trimmed.length() - 1);
-      std::cout << "starting new pattern for: " << current_pattern_name
-                << std::endl;
+
+      std::string header = trimmed.substr(0, trimmed.length() - 1);
+
+      std::smatch match;
+      if (std::regex_match(header, match, header_regex)) {
+        current_pattern_name = match[1];
+        pattern_name_to_channel[current_pattern_name] = std::stoul(match[2]);
+      } else {
+        current_pattern_name = header;
+      }
     } else {
-      current_lines.push_back(trimmed);
+      current_bars.push_back(trimmed);
     }
   }
 
-  flush_current(); // Handle last pattern
+  flush_current();
 
-  return patterns;
+  return {std::move(pattern_name_to_bars), std::move(pattern_name_to_channel)};
 }
 
-Arrangement parse_arrangement(std::istream &in) {
-  Arrangement arr;
+std::vector<PatternData> parse_arrangement(
+    std::istream &in,
+    const std::unordered_map<std::string, std::vector<std::string>>
+        &pattern_name_to_bars) {
+
+  std::vector<std::string> lines;
+  unsigned int num_bars_per_block = 0;
   std::string line;
+
   while (std::getline(in, line)) {
     if (line.find("ARRANGEMENT END") != std::string::npos)
       break;
-    std::istringstream iss(line);
-    std::string token;
-    while (iss >> token) {
-      if (!token.empty()) {
-        arr.sequence.push_back(token);
-      }
+
+    if (line.find("num_bars_per_block") != std::string::npos) {
+      auto eq_pos = line.find('=');
+      if (eq_pos != std::string::npos)
+        num_bars_per_block = std::stoi(line.substr(eq_pos + 1));
+    } else {
+      lines.push_back(line);
     }
   }
-  return arr;
+
+  if (num_bars_per_block == 0) {
+    throw std::runtime_error(
+        "Missing num_bars_per_block in ARRANGEMENT section");
+  }
+
+  // Map from bar position to pattern name
+  std::vector<PatternData> raw_entries;
+
+  for (const std::string &line : lines) {
+    for (size_t i = 0; i < line.size(); ++i) {
+      char c = line[i];
+      if (c == ' ' || c == '\t')
+        continue;
+
+      std::string pattern_name(1, c);
+      if (pattern_name_to_bars.find(pattern_name) == pattern_name_to_bars.end())
+        continue;
+
+      unsigned int pattern_bar_count =
+          pattern_name_to_bars.at(pattern_name).size();
+      unsigned int start_bar =
+          static_cast<unsigned int>(i * num_bars_per_block);
+
+      raw_entries.push_back({pattern_name, start_bar, 1});
+    }
+  }
+
+  // Sort entries by start_bar
+  std::sort(raw_entries.begin(), raw_entries.end(),
+            [](const PatternData &a, const PatternData &b) {
+              return a.start_bar < b.start_bar;
+            });
+
+  std::vector<PatternData> grouped;
+  for (const auto &entry : raw_entries) {
+    bool merged = false; // To track if a match was found and merged
+
+    for (auto &group : grouped) {
+      unsigned int num_bars_in_pattern =
+          pattern_name_to_bars.at(entry.name).size();
+      unsigned int last_end_bar =
+          group.start_bar + (group.num_repeats * num_bars_in_pattern);
+
+      if (group.name == entry.name && last_end_bar == entry.start_bar) {
+        group.num_repeats += entry.num_repeats;
+        merged = true;
+        break; // Exit the loop once merged
+      }
+    }
+
+    if (!merged) {
+      grouped.push_back(entry);
+    }
+  }
+
+  return grouped;
 }
 
-std::vector<std::string>
-parse_grid_pattern(const std::vector<std::string> &lines,
-                   const LegendMap &legend, const std::string &pattern_name) {
+std::vector<std::string> parse_grid_pattern(
+    const std::vector<std::string> &lines,
+    const std::unordered_map<std::string, std::string> &symbol_to_midi_note,
+    const std::string &pattern_name) {
   std::vector<std::vector<std::string>> grid; // [instrument][steps]
-  std::vector<int> midi_numbers;
+  std::vector<std::string> midi_numbers;
 
   std::cout << "Parsing pattern: " << pattern_name << std::endl;
 
@@ -124,13 +215,13 @@ parse_grid_pattern(const std::vector<std::string> &lines,
     std::cout << "  Instrument: " << instrument << std::endl;
     std::cout << "  Bar data: " << bar_data << std::endl;
 
-    if (legend.count(instrument) == 0) {
+    if (symbol_to_midi_note.count(instrument) == 0) {
       throw std::runtime_error("Instrument '" + instrument +
                                "' not found in legend for pattern '" +
                                pattern_name + "'");
     }
 
-    int midi = legend.at(instrument);
+    std::string midi = symbol_to_midi_note.at(instrument);
     std::cout << "  MIDI number: " << midi << std::endl;
     midi_numbers.push_back(midi);
 
@@ -165,7 +256,7 @@ parse_grid_pattern(const std::vector<std::string> &lines,
       std::cout << "Starting new bar at step " << i << std::endl;
     }
 
-    std::vector<int> hits;
+    std::vector<std::string> hits;
     for (size_t j = 0; j < grid.size(); ++j) {
       if (grid[j][i] == "x") {
         hits.push_back(midi_numbers[j]);
@@ -175,7 +266,7 @@ parse_grid_pattern(const std::vector<std::string> &lines,
     if (!hits.empty()) {
       current_bar += "(";
       for (size_t k = 0; k < hits.size(); ++k) {
-        current_bar += std::to_string(hits[k]);
+        current_bar += hits[k];
         if (k + 1 < hits.size())
           current_bar += " ";
       }
@@ -198,43 +289,27 @@ parse_grid_pattern(const std::vector<std::string> &lines,
   return bars;
 }
 
-void load_jam_file(const std::string &path) {
+JamFileData load_jam_file(const std::string &path) {
   std::ifstream file(path);
   std::string line;
 
-  LegendMap legend;
-  PatternMap patterns;
-  Arrangement arrangement;
+  std::unordered_map<std::string, std::string> legend_symbol_to_midi_note;
+  PatternMap pattern_name_to_bars;
+  std::unordered_map<std::string, unsigned int> pattern_name_to_channel;
+  std::vector<PatternData> arrangement;
 
   while (std::getline(file, line)) {
     if (line.find("LEGEND START") != std::string::npos) {
-      legend = parse_legend(file);
+      legend_symbol_to_midi_note = parse_legend_to_symbol_to_note(file);
     } else if (line.find("PATTERNS START") != std::string::npos) {
-      // legend must be defined by the time we get here
-      patterns = parse_patterns(file, legend);
-
-      std::cout << "\n=== Parsed Patterns ===\n";
-      for (const auto &[pattern_name, bars] : patterns) {
-        std::cout << "Pattern " << pattern_name << ":\n";
-        for (const std::string &bar : bars) {
-          std::cout << "  " << bar << "\n";
-        }
-      }
-      std::cout << "=======================\n\n";
-
+      auto tup = parse_patterns(file, legend_symbol_to_midi_note);
+      pattern_name_to_bars = tup.first;
+      pattern_name_to_channel = tup.second;
     } else if (line.find("ARRANGEMENT START") != std::string::npos) {
-      arrangement = parse_arrangement(file);
+      arrangement = parse_arrangement(file, pattern_name_to_bars);
+      // Optional: debug printing
     }
   }
 
-  // Example: Convert the arrangement to actual sequences
-  for (const std::string &pattern_id : arrangement.sequence) {
-    if (patterns.count(pattern_id)) {
-      const auto &pattern_lines = patterns[pattern_id];
-      for (const std::string &bar : pattern_lines) {
-        std::cout << "Bar from " << pattern_id << ": " << bar << "\n";
-        // Possibly tokenize and feed to BarSequence
-      }
-    }
-  }
+  return {pattern_name_to_bars, pattern_name_to_channel, arrangement};
 }
