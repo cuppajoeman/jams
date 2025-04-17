@@ -1,0 +1,51 @@
+LEGEND START
+# based on hydrogen
+Kick: 36
+Stick: 37
+Snare: 38
+Hand: 39
+Snare: 40
+Floor: 41
+Hat Closed: 42
+Tom 2: 43
+Hat Pedal: 44
+Tom 1: 45
+Hat Open: 46
+Crash: 49
+Ride: 51
+Hat Semi-Open: 52
+Bell: 53
+Splash: 55
+Cowbell: 56
+Ride 2: 59
+Hat Semi-Open: 82
+LEGEND END
+
+PATTERNS START
+
+A:
+(0, 2 7 4') | (2 7 9 0' 2'') | (0, 2 9 11 4') | (2 5 4' 9 2) 
+(2 4 9 0') | (2 7 9 0' 2'') | (5, 2 0' 4') | (0,, 4, 7 4' 2'')
+
+B: 
+(0,,) | (2,,) | (9,,,) | (7,,,)
+(4,,) | (2,,) | (5,,) | (0,,)
+
+C: 
+(Hat Closed) |x-x-|x-x-|x-x-|x-x-|
+(Snare)      |----|x---|----|x---|
+(Kick)       |x---|----|x---|----|
+
+PATTERNS END
+
+
+
+
+ARRANGEMENT START
+
+        A A A A A A 
+B B B B B B B B     B B B B
+    CCCCCCCC    CCCC
+
+ARRANGEMENT END
+

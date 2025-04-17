@@ -8,7 +8,10 @@ project(project_name)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(RTMIDI REQUIRED rtmidi)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+file(GLOB_RECURSE SOURCES "src/*.cpp")
+
+# Add the main executable
+add_executable(${PROJECT_NAME} ${SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${RTMIDI_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${RTMIDI_LIBRARIES})
