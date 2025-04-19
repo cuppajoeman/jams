@@ -1,0 +1,3 @@
+[submodule "src/rt_midi_utils"]
+	path = src/rt_midi_utils
+	url = git@github.com:cpp-toolbox/rt_midi_utils.git

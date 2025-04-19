@@ -6,11 +6,23 @@ std::string trim(const std::string &s) {
   return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
 }
 
+bool line_should_be_skipped(const std::string &line) {
+  // Trim leading whitespace to handle lines like "   # comment"
+  size_t first_non_space = line.find_first_not_of(" \t");
+  if (first_non_space == std::string::npos)
+    return true;
+  if (line[first_non_space] == '#')
+    return true;
+  return false;
+}
+
 std::unordered_map<std::string, std::string>
 parse_legend_to_symbol_to_note(std::istream &in) {
   std::unordered_map<std::string, std::string> legend;
   std::string line;
   while (std::getline(in, line)) {
+    if (line_should_be_skipped(line))
+      continue;
     if (line.find("LEGEND END") != std::string::npos)
       break;
     std::regex entry_regex(R"((.*?):\s*(\d+[',]*))");
@@ -82,6 +94,10 @@ parse_patterns(
   };
 
   while (std::getline(in, line)) {
+
+    if (line_should_be_skipped(line))
+      continue;
+
     if (line.find("PATTERNS END") != std::string::npos)
       break;
 
@@ -122,6 +138,10 @@ std::vector<PatternData> parse_arrangement(
   std::string line;
 
   while (std::getline(in, line)) {
+
+    if (line_should_be_skipped(line))
+      continue;
+
     if (line.find("ARRANGEMENT END") != std::string::npos)
       break;
 
@@ -191,6 +211,7 @@ std::vector<PatternData> parse_arrangement(
 
   return grouped;
 }
+
 
 std::vector<std::string> parse_grid_pattern(
     const std::vector<std::string> &lines,
@@ -299,6 +320,10 @@ JamFileData load_jam_file(const std::string &path) {
   std::vector<PatternData> arrangement;
 
   while (std::getline(file, line)) {
+
+    if (line_should_be_skipped(line))
+      continue;
+
     if (line.find("LEGEND START") != std::string::npos) {
       legend_symbol_to_midi_note = parse_legend_to_symbol_to_note(file);
     } else if (line.find("PATTERNS START") != std::string::npos) {
@@ -307,7 +332,6 @@ JamFileData load_jam_file(const std::string &path) {
       pattern_name_to_channel = tup.second;
     } else if (line.find("ARRANGEMENT START") != std::string::npos) {
       arrangement = parse_arrangement(file, pattern_name_to_bars);
-      // Optional: debug printing
     }
   }
 

@@ -1,5 +1,6 @@
 [requires]
 rtmidi/6.0.0
+ftxui/6.0.2
 [generators]
 CMakeDeps
 CMakeToolchain

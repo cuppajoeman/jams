@@ -23,18 +23,38 @@ LEGEND END
 
 PATTERNS START
 
-A(1):
-(0, 2 7 4') | (2 7 9 0' 2'') | (0, 2 9 11 4') | (2 5 4' 9 2) 
-(2 4 9 0') | (2 7 9 0' 2'') | (5, 2 0' 4') | (0,, 4, 7 4' 2'')
+A(1): 
+| (0') (7) (2') (7) | (3') (7) (5') (7) | (3') (7) (2') (7) | (0') (7) (2') (7) | (3') (7) (5') (7) |
+| (5) (7) (3) (7) | (2) (7) (0) (7) | (2) (7) (3) (7) | (5) (7) (3) (7) |
+
+# A(1):
+# (0, 2 7 4') | (2 7 9 0' 2'') | (0, 2 9 11 4') | (2 5 4' 9 2) 
+# (2 4 9 0') | (2 7 9 0' 2'') | (5, 2 0' 4') | (0,, 4, 7 4' 2'')
+
+# B(2): 
+# (0,,) | (2,,) | (9,,,) | (7,,,)
+# (4,,) | (2,,) | (5,,) | (0,,)
+
 
 B(2): 
-(0,,) | (2,,) | (9,,,) | (7,,,)
-(4,,) | (2,,) | (5,,) | (0,,)
+(0) (7) | (0) (10) |  (0) (0') | (8) (7)
+
 
 C(3): 
 (Hat Closed) |x-x-|x-x-|x-x-|x-x-|
 (Snare)      |----|x---|----|x---|
 (Kick)       |x---|----|x---|----|
+
+D(3):
+(Hat Closed) |x-x-|x-x-|x-x-|x-x-|
+(Snare)      |----|x--x|-x--|x---|
+(Kick)       |x-x-|--x-|x-x-|----|
+
+E(3):
+(Hat Closed) |x-x-|x-x-|x-x-|x-x-|
+(Snare)      |----|x---|--x-|-x-x|
+(Kick)       |x---|--x-|----|--x-|
+
 
 PATTERNS END
 
@@ -42,9 +62,34 @@ PATTERNS END
 ARRANGEMENT START
 num_bars_per_block = 4
 
-        A A A A A A 
-B B B B B B B B     B B B B
-    CCCCCCCC    CCCC
+                A A A A A A A A 
+    BBBBBBBBBBBB        BBBB    
+CCCCCCCCDDDDDDDDEEEEEEEEDDDDEEEECCCC
+                
+#         A A A A A A 
+# B B B B B B B B     B B B B
+#     CCCCCCCC    CCCC
 
 ARRANGEMENT END
+
+new ideas
+
+there is the start, middle and end
+there are drums, bass and lead
+
+first generate a random length for start, middle and end which is a divisor of all of the patterns eg all sections are a multiple of 16
+we can have meta parameters for legth short, normal, and long
+
+in the middle we process 16 bars at a time and we have settings for dense, normal, sparse, and that does the structure
+
+the start is always a ramp up?  
+
+
+start                                     |middle
+LEAD  :                         <AAAA><AAAA>|<----><----><----><---->
+CHORDS:                         <AAAA><AAAA>|<----><----><----><---->
+BASS  :             <DDDD><DDDD><DDDD><DDDD>|<----><----><----><---->
+DRUM  : <XXXX><XXXX><YYYY><YYYY><ZZZZ><ZZZZ>|<----><----><----><---->
+
+
 

@@ -11,8 +11,10 @@
 #include <string>
 #include <thread>
 
+#include "rt_midi_utils/rt_midi_utils.hpp"
+
 constexpr double epsilon = 1e-3;
-unsigned int bpm_new = 60;
+unsigned int bpm_new = 120;
 
 // Custom hash for time_point to use in unordered_map
 struct time_point_hash {
@@ -322,17 +324,42 @@ public:
   unsigned int largest_end_bar_for_any_pattern = 0;
 
   Sequencer() {
-    try {
-      midi_out = std::make_unique<RtMidiOut>();
-      if (midi_out->getPortCount() > 0) {
-        midi_out->openPort(0); // open first available port
-      } else {
-        midi_out->openVirtualPort("Sequencer Output");
-      }
-    } catch (RtMidiError &error) {
-      std::cerr << "MIDI setup error: " << error.getMessage() << std::endl;
+    RtMidiOut *raw_midi_out = nullptr;
+    if (!initialize_midi_output(raw_midi_out)) {
+      std::cerr << "MIDI setup error: Failed to initialize MIDI output\n";
       exit(1);
     }
+
+    midi_out = std::unique_ptr<RtMidiOut>(raw_midi_out);
+  }
+
+  void pause() {
+    std::lock_guard<std::mutex> lock(mutex);
+    is_paused = true;
+    std::cout << "Sequencer paused.\n";
+  }
+
+  void resume() {
+    std::lock_guard<std::mutex> lock(mutex);
+    is_paused = false;
+    std::cout << "Sequencer resumed.\n";
+  }
+
+  void reset_to_start() {
+    std::lock_guard<std::mutex> lock(mutex);
+    sequencer_bar_index = 0;
+    for (auto &seq : bar_sequences) {
+      seq.current_repetition = 0;
+    }
+    std::cout << "Sequencer reset to start.\n";
+  }
+
+  void clear_all_data() {
+    std::lock_guard<std::mutex> lock(mutex);
+    bar_sequences.clear();
+    largest_end_bar_for_any_pattern = 0;
+    sequencer_bar_index = 0;
+    std::cout << "Sequencer cleared.\n";
   }
 
   void add(const Pattern &bar_seq) {
@@ -419,6 +446,11 @@ public:
   void process_current_bar() {
     using namespace std::chrono;
 
+    if (is_paused) {
+      std::cout << "Sequencer is paused. Skipping bar processing.\n";
+      return;
+    }
+
     steady_clock::time_point bar_start_time = steady_clock::now();
     steady_clock::time_point next_bar_time = bar_start_time + tick_duration;
 
@@ -501,6 +533,7 @@ private:
       std::chrono::duration_cast<std::chrono::nanoseconds>(
           std::chrono::duration<double>{0.5})};
   std::mutex mutex;
+  bool is_paused = false;
 };
 
 #endif // MUSIC_ELEMENTS_HPP

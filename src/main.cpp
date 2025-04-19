@@ -81,7 +81,7 @@ int main() {
     sequencer.add(p);
   }
 
-  sequencer.set_bpm(60);
+  sequencer.set_bpm(120);
   while (true) {
     sequencer.process_current_bar();
   }
