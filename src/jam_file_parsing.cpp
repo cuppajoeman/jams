@@ -1,4 +1,12 @@
 #include "jam_file_parsing.hpp"
+#include <algorithm>
+#include <iostream>
+#include <numeric> // std::lcm (C++17)
+#include <regex>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 std::string trim(const std::string &s) {
   size_t start = s.find_first_not_of(" \t");
@@ -212,6 +220,27 @@ std::vector<PatternData> parse_arrangement(
   return grouped;
 }
 
+// Compute the LCM of a vector of integers
+int compute_lcm(const std::vector<int> &values) {
+  return std::accumulate(values.begin(), values.end(), 1,
+                         [](int a, int b) { return std::lcm(a, b); });
+}
+
+// Rescale a single segment like "x-x-" to a new step count
+std::vector<std::string> rescale_segment(const std::string &segment,
+                                         int target_steps) {
+  int original_steps = static_cast<int>(segment.size());
+  std::vector<std::string> result(target_steps, "-");
+
+  for (int i = 0; i < original_steps; ++i) {
+    if (segment[i] == 'x') {
+      // Compute mapped index in rescaled version
+      int idx = i * target_steps / original_steps;
+      result[idx] = "x";
+    }
+  }
+  return result;
+}
 
 std::vector<std::string> parse_grid_pattern(
     const std::vector<std::string> &lines,
@@ -221,6 +250,9 @@ std::vector<std::string> parse_grid_pattern(
   std::vector<std::string> midi_numbers;
 
   std::cout << "Parsing pattern: " << pattern_name << std::endl;
+
+  std::vector<std::vector<std::string>> all_segments;
+  std::vector<int> bar_lengths;
 
   for (const std::string &line : lines) {
     std::cout << "Processing line: " << line << std::endl;
@@ -246,22 +278,38 @@ std::vector<std::string> parse_grid_pattern(
     std::cout << "  MIDI number: " << midi << std::endl;
     midi_numbers.push_back(midi);
 
-    std::vector<std::string> steps;
     std::regex step_regex(R"(\|([x\-]+))");
     auto begin =
         std::sregex_iterator(bar_data.begin(), bar_data.end(), step_regex);
     auto end = std::sregex_iterator();
+
+    std::vector<std::string> instrument_steps;
+    std::vector<std::string> instrument_segments;
     for (auto it = begin; it != end; ++it) {
       std::string segment = (*it)[1];
+      instrument_segments.push_back(segment);
+      bar_lengths.push_back(static_cast<int>(segment.size()));
       std::cout << "    Found segment: " << segment << std::endl;
-      for (char ch : segment) {
-        steps.emplace_back(1, ch);
-      }
     }
 
-    std::cout << "  Total steps for " << instrument << ": " << steps.size()
-              << std::endl;
-    grid.push_back(steps);
+    all_segments.push_back(instrument_segments);
+  }
+
+  int lcm = compute_lcm(bar_lengths);
+  std::cout << "Rescaling all bars to LCM step count: " << lcm << std::endl;
+
+  for (size_t i = 0; i < all_segments.size(); ++i) {
+    std::vector<std::string> rescaled_steps;
+
+    for (const std::string &segment : all_segments[i]) {
+      std::vector<std::string> upscaled = rescale_segment(segment, lcm);
+      rescaled_steps.insert(rescaled_steps.end(), upscaled.begin(),
+                            upscaled.end());
+    }
+
+    std::cout << "  Total steps for instrument " << i << ": "
+              << rescaled_steps.size() << std::endl;
+    grid.push_back(rescaled_steps);
   }
 
   size_t num_steps = grid[0].size();
@@ -269,7 +317,7 @@ std::vector<std::string> parse_grid_pattern(
 
   std::vector<std::string> bars;
   std::string current_bar;
-  const int steps_per_bar = 4;
+  const int steps_per_bar = lcm;
 
   for (size_t i = 0; i < num_steps; ++i) {
     if (i % steps_per_bar == 0) {
@@ -277,18 +325,18 @@ std::vector<std::string> parse_grid_pattern(
       std::cout << "Starting new bar at step " << i << std::endl;
     }
 
-    std::vector<std::string> hits;
+    std::vector<std::string> combined_hits;
     for (size_t j = 0; j < grid.size(); ++j) {
       if (grid[j][i] == "x") {
-        hits.push_back(midi_numbers[j]);
+        combined_hits.push_back(midi_numbers[j]);
       }
     }
 
-    if (!hits.empty()) {
+    if (!combined_hits.empty()) {
       current_bar += "(";
-      for (size_t k = 0; k < hits.size(); ++k) {
-        current_bar += hits[k];
-        if (k + 1 < hits.size())
+      for (size_t k = 0; k < combined_hits.size(); ++k) {
+        current_bar += combined_hits[k];
+        if (k + 1 < combined_hits.size())
           current_bar += " ";
       }
       current_bar += ") ";

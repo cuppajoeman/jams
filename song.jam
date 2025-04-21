@@ -1,12 +1,12 @@
 LEGEND START
-# based on hydrogen then subtracting 60
-Kick: 0,,
+# based on whatever's in bitwig
 Stick: 1,,
 Snare: 2,,
 Hand: 3,,
-Snare: 4,,
 Floor: 5,,
-Hat Closed: 6,,
+Hat Closed: 2,,
+Snare: 1,,
+Kick: 0,,
 Tom 2: 7,,
 Hat Pedal: 8,,
 Tom 1: 9,,
@@ -27,6 +27,10 @@ A(1):
 | (0') (7) (2') (7) | (3') (7) (5') (7) | (3') (7) (2') (7) | (0') (7) (2') (7) | (3') (7) (5') (7) |
 | (5) (7) (3) (7) | (2) (7) (0) (7) | (2) (7) (3) (7) | (5) (7) (3) (7) |
 
+K(5):
+| (0 3' 7' 10) | (2 3' 7 5') | (8 0' 7' 3'') | (2 8 0' 5') |
+| (0 3' 7' 10) | (2 3' 7 5') | (8 0' 7' 3'') | (2 8 0' 5') |
+
 # A(1):
 # (0, 2 7 4') | (2 7 9 0' 2'') | (0, 2 9 11 4') | (2 5 4' 9 2) 
 # (2 4 9 0') | (2 7 9 0' 2'') | (5, 2 0' 4') | (0,, 4, 7 4' 2'')
@@ -38,7 +42,11 @@ A(1):
 
 B(2): 
 (0) (7) | (0) (10) |  (0) (0') | (8) (7)
+(0) (7) | (0) (10) |  (0) (0') | (8) (7)
 
+Y(4): 
+|(0)--(7)|--(10)-|(3)--(0)|--(7)-|
+|(10)--(3)|--(0)-|(7)--(10)|--(3)-|
 
 C(3): 
 (Hat Closed) |x-x-|x-x-|x-x-|x-x-|
@@ -62,34 +70,24 @@ PATTERNS END
 ARRANGEMENT START
 num_bars_per_block = 4
 
-                A A A A A A A A 
-    BBBBBBBBBBBB        BBBB    
-CCCCCCCCDDDDDDDDEEEEEEEEDDDDEEEECCCC
-                
-#         A A A A A A 
-# B B B B B B B B     B B B B
-#     CCCCCCCC    CCCC
+        A A A A A A         A A A A
+      K K K K           K K K K K K       K K
+B B B B B B B B     B B B B         B B B B B B B
+    CCCCCCCC    DDDD        CCCCCCCCDDDDDDDDCCCC
+            Y Y Y Y Y Y Y Y         Y Y Y Y
 
 ARRANGEMENT END
 
-new ideas
+GENERATIVE START
 
-there is the start, middle and end
-there are drums, bass and lead
+Section 1:
+- Layer 1:
+  - A: 
+  - B: 
+- Layer 2:
 
-first generate a random length for start, middle and end which is a divisor of all of the patterns eg all sections are a multiple of 16
-we can have meta parameters for legth short, normal, and long
+Section 2:
+- Layer 1:
+- Layer 2:
 
-in the middle we process 16 bars at a time and we have settings for dense, normal, sparse, and that does the structure
-
-the start is always a ramp up?  
-
-
-start                                     |middle
-LEAD  :                         <AAAA><AAAA>|<----><----><----><---->
-CHORDS:                         <AAAA><AAAA>|<----><----><----><---->
-BASS  :             <DDDD><DDDD><DDDD><DDDD>|<----><----><----><---->
-DRUM  : <XXXX><XXXX><YYYY><YYYY><ZZZZ><ZZZZ>|<----><----><----><---->
-
-
-
+GENERATIVE END
