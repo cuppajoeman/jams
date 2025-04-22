@@ -9,6 +9,10 @@
 #include <unordered_map>
 #include <vector>
 
+using LayerChoices = std::vector<std::pair<std::string, unsigned>>;
+using Sequence = std::vector<std::string>;
+using AllSequences = std::vector<Sequence>;
+
 struct LegendEntry {
   std::string name;
   int midi_number;
@@ -30,6 +34,7 @@ struct JamFileData {
   PatternMap pattern_name_to_bars;
   std::unordered_map<std::string, unsigned int> pattern_name_to_channel;
   std::vector<PatternData> arrangement;
+  std::vector<LayerChoices> layers_of_pattern_to_weight;
 
   friend std::ostream &operator<<(std::ostream &os, const JamFileData &data) {
     os << "\n=== Parsed Pattern Bars ===\n";
@@ -51,6 +56,16 @@ struct JamFileData {
     for (const auto &entry : data.arrangement) {
       os << "{ \"" << entry.name << "\", " << entry.start_bar << ", "
          << entry.num_repeats << " }\n";
+    }
+    os << "===========================\n";
+
+    os << "=== Parsed Generative ===\n";
+    for (size_t i = 0; i < data.layers_of_pattern_to_weight.size(); ++i) {
+      os << "Layer " << i << ":\n";
+      for (const auto &[pattern_name, weight] :
+           data.layers_of_pattern_to_weight[i]) {
+        os << "  \"" << pattern_name << "\": " << weight << "\n";
+      }
     }
     os << "===========================\n";
 

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <iostream>
 #include <numeric> // std::lcm (C++17)
+#include <random>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -358,30 +359,239 @@ std::vector<std::string> parse_grid_pattern(
   return bars;
 }
 
+std::vector<LayerChoices> parse_generative(std::istream &stream) {
+  std::vector<LayerChoices> result;
+  std::string line;
+  LayerChoices current_layer;
+  bool in_layer_block = false;
+
+  std::cout << "Starting parse_generative..." << std::endl;
+
+  while (std::getline(stream, line)) {
+    std::cout << "Read line: \"" << line << "\"" << std::endl;
+
+    if (line.find("GENERATIVE END") != std::string::npos) {
+      std::cout << "Found GENERATIVE END marker. Stopping parse." << std::endl;
+      break;
+    }
+
+    std::string trimmed = line;
+    trimmed.erase(0, trimmed.find_first_not_of(" \t\r\n"));
+    trimmed.erase(trimmed.find_last_not_of(" \t\r\n") + 1);
+
+    if (trimmed.empty()) {
+      std::cout << "Skipping empty line after trim." << std::endl;
+      continue;
+    }
+
+    size_t first_dash = line.find('-');
+    size_t leading_spaces = (first_dash != std::string::npos) ? first_dash : 0;
+
+    if (trimmed[0] == '-' && trimmed.find(':') != std::string::npos) {
+      if (leading_spaces == 0) {
+        std::cout << "Found new layer header: \"" << trimmed << "\""
+                  << std::endl;
+
+        if (!current_layer.empty()) {
+          std::cout << "Storing current layer with " << current_layer.size()
+                    << " entries." << std::endl;
+          result.push_back(std::move(current_layer));
+          current_layer.clear();
+        }
+
+        in_layer_block = true;
+      } else {
+        auto colon_pos = trimmed.find(':');
+        std::string name = trimmed.substr(0, colon_pos);
+        std::string count_str = trimmed.substr(colon_pos + 1);
+
+        name.erase(0, name.find_first_not_of(" \t-"));
+        // name.erase(name.find_last_not_of(" \t") + 1);
+        count_str.erase(0, count_str.find_first_not_of(" \t"));
+        count_str.erase(count_str.find_last_not_of(" \t") + 1);
+
+        if (name.empty() or name == " ") {
+          name = " ";
+          // std::cout << "Skipping entry with empty name." << std::endl;
+          // continue;
+        }
+
+        try {
+          unsigned count = static_cast<unsigned>(std::stoul(count_str));
+          std::cout << "Adding (\"" << name << "\", " << count
+                    << ") to current layer." << std::endl;
+          current_layer.emplace_back(name, count);
+        } catch (const std::invalid_argument &) {
+          std::cout << "Invalid count \"" << count_str << "\" for entry \""
+                    << name << "\", skipping." << std::endl;
+        }
+      }
+    } else {
+      std::cout << "Skipping non-layer, non-pattern line: \"" << trimmed << "\""
+                << std::endl;
+    }
+  }
+
+  if (!current_layer.empty()) {
+    std::cout << "Storing final layer with " << current_layer.size()
+              << " entries." << std::endl;
+    result.push_back(std::move(current_layer));
+  }
+
+  std::cout << "Finished parsing. Total layers: " << result.size() << std::endl;
+  return result;
+}
+
+AllSequences duplicate_sequence_elements(const AllSequences &input, int n) {
+  AllSequences output;
+  output.reserve(input.size());
+
+  for (const auto &sequence : input) {
+    Sequence duplicated;
+    duplicated.reserve(sequence.size() * n);
+
+    for (const auto &element : sequence) {
+      for (int i = 0; i < n; ++i) {
+        duplicated.push_back(element);
+      }
+    }
+
+    output.push_back(std::move(duplicated));
+  }
+
+  return output;
+}
+
+// Function to sample a string based on weight
+std::string sample_string(const LayerChoices &choices, std::mt19937 &rng) {
+  unsigned total_weight = 0;
+  for (const auto &[_, weight] : choices) {
+    total_weight += weight;
+  }
+
+  std::uniform_int_distribution<> dist(1, total_weight);
+  unsigned r = dist(rng);
+
+  unsigned cumulative = 0;
+  for (const auto &[str, weight] : choices) {
+    cumulative += weight;
+    if (r <= cumulative) {
+      return str;
+    }
+  }
+
+  // Fallback (shouldn't happen if weights are valid)
+  return choices.back().first;
+}
+
+std::string to_multiline_string(const AllSequences &sequences) {
+  std::ostringstream oss;
+
+  for (size_t channel = 0; channel < sequences.size(); ++channel) {
+    for (const auto &symbol : sequences[channel]) {
+      oss << symbol;
+    }
+    oss << '\n';
+  }
+
+  return oss.str();
+}
+
+AllSequences generate_sequences(const std::vector<LayerChoices> &channels,
+                                int target_length) {
+  AllSequences sequences;
+  std::random_device rd;
+  std::mt19937 rng(rd());
+
+  for (const auto &channel : channels) {
+    Sequence sequence;
+    for (int i = 0; i < target_length; ++i) {
+      sequence.push_back(sample_string(channel, rng));
+    }
+    sequences.push_back(sequence);
+  }
+
+  return sequences;
+}
+
 JamFileData load_jam_file(const std::string &path) {
   std::ifstream file(path);
   std::string line;
 
-  std::unordered_map<std::string, std::string> legend_symbol_to_midi_note;
-  PatternMap pattern_name_to_bars;
-  std::unordered_map<std::string, unsigned int> pattern_name_to_channel;
-  std::vector<PatternData> arrangement;
+  std::stringstream legend_stream;
+  std::stringstream patterns_stream;
+  std::stringstream arrangement_stream;
+  std::stringstream generative_stream;
 
+  std::stringstream *current_stream = nullptr;
+
+  bool manual_arrangement = false;
   while (std::getline(file, line)) {
-
     if (line_should_be_skipped(line))
       continue;
 
     if (line.find("LEGEND START") != std::string::npos) {
-      legend_symbol_to_midi_note = parse_legend_to_symbol_to_note(file);
+      current_stream = &legend_stream;
     } else if (line.find("PATTERNS START") != std::string::npos) {
-      auto tup = parse_patterns(file, legend_symbol_to_midi_note);
-      pattern_name_to_bars = tup.first;
-      pattern_name_to_channel = tup.second;
+      current_stream = &patterns_stream;
     } else if (line.find("ARRANGEMENT START") != std::string::npos) {
-      arrangement = parse_arrangement(file, pattern_name_to_bars);
+      manual_arrangement = true;
+      current_stream = &arrangement_stream;
+    } else if (line.find("GENERATIVE START") != std::string::npos) {
+      current_stream = &generative_stream;
+    } else if (current_stream) {
+      *current_stream << line << '\n';
     }
   }
 
-  return {pattern_name_to_bars, pattern_name_to_channel, arrangement};
+  auto legend_symbol_to_midi_note =
+      parse_legend_to_symbol_to_note(legend_stream);
+  auto [pattern_name_to_bars, pattern_name_to_channel] =
+      parse_patterns(patterns_stream, legend_symbol_to_midi_note);
+
+  auto layers_of_pattern_to_weight = parse_generative(generative_stream);
+
+  std::vector<PatternData> arrangement;
+  if (manual_arrangement) {
+    arrangement = parse_arrangement(arrangement_stream, pattern_name_to_bars);
+  } else { // generative
+
+    int target_length = 20; // temp bad remove me
+
+    AllSequences result =
+        generate_sequences(layers_of_pattern_to_weight, target_length);
+    AllSequences duplicated_result = duplicate_sequence_elements(result, 4);
+
+    std::string multiline_input = to_multiline_string(duplicated_result);
+    multiline_input = "ARRANGEMENT START\nnum_bars_per_block = 4\n" +
+                      multiline_input + "\nARRANGEMENT END";
+    std::cout << "generated arrangement" << std::endl;
+    std::cout << multiline_input << std::endl;
+    std::istringstream in_stream(multiline_input);
+
+    std::cout << "before" << std::endl;
+    arrangement = parse_arrangement(in_stream, pattern_name_to_bars);
+    std::cout << "after" << std::endl;
+
+    // Print the result
+    for (size_t i = 0; i < result.size(); ++i) {
+      std::cout << "Channel " << i << ": ";
+      for (const auto &s : result[i]) {
+        std::cout << s << " ";
+      }
+      std::cout << '\n';
+    }
+
+    // Print the result
+    for (size_t i = 0; i < duplicated_result.size(); ++i) {
+      std::cout << "Channel " << i << ": ";
+      for (const auto &s : duplicated_result[i]) {
+        std::cout << s << " ";
+      }
+      std::cout << '\n';
+    }
+  }
+
+  return {pattern_name_to_bars, pattern_name_to_channel, arrangement,
+          layers_of_pattern_to_weight};
 }
