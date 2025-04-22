@@ -30,7 +30,14 @@ struct PatternData {
   unsigned int num_repeats;
 };
 
+// this is what is returned, and used to create the music,
+// the arrangement contains the structural information of the song over time
+// the other mappings are used to figure out what notes and what channels to
+// play the specific notes on
+// once you return the jam file data then the sequencer will read it in and play
+// the notes
 struct JamFileData {
+  unsigned int bpm;
   PatternMap pattern_name_to_bars;
   std::unordered_map<std::string, unsigned int> pattern_name_to_channel;
   std::vector<PatternData> arrangement;

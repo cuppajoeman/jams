@@ -514,10 +514,52 @@ AllSequences generate_sequences(const std::vector<LayerChoices> &channels,
   return sequences;
 }
 
+unsigned int parse_data_section_for_bpm(std::stringstream &data_stream,
+                                        unsigned int default_bpm = 120) {
+  std::string line;
+  while (std::getline(data_stream, line)) {
+    if (line.empty())
+      continue;
+
+    // Trim leading whitespace
+    line.erase(0, line.find_first_not_of(" \t"));
+
+    // Handle dash-prefixed lines like "- bpm: 60"
+    if (!line.empty() && line[0] == '-') {
+      line.erase(0, 1);                             // remove dash
+      line.erase(0, line.find_first_not_of(" \t")); // remove space after dash
+    }
+
+    auto delimiter_pos = line.find(':');
+    if (delimiter_pos == std::string::npos)
+      continue;
+
+    std::string key = line.substr(0, delimiter_pos);
+    std::string value = line.substr(delimiter_pos + 1);
+
+    // Trim key and value
+    key.erase(0, key.find_first_not_of(" \t"));
+    key.erase(key.find_last_not_of(" \t") + 1);
+    value.erase(0, value.find_first_not_of(" \t"));
+    value.erase(value.find_last_not_of(" \t") + 1);
+
+    if (key == "bpm") {
+      try {
+        return static_cast<unsigned int>(std::stoi(value));
+      } catch (...) {
+        break; // fall back to default
+      }
+    }
+  }
+
+  return default_bpm;
+}
+
 JamFileData load_jam_file(const std::string &path) {
   std::ifstream file(path);
   std::string line;
 
+  std::stringstream data_stream;
   std::stringstream legend_stream;
   std::stringstream patterns_stream;
   std::stringstream arrangement_stream;
@@ -530,7 +572,11 @@ JamFileData load_jam_file(const std::string &path) {
     if (line_should_be_skipped(line))
       continue;
 
-    if (line.find("LEGEND START") != std::string::npos) {
+    // what we're doing here is re-assigning the current stream
+    // and the [what are we doing here?]
+    if (line.find("DATA START") != std::string::npos) {
+      current_stream = &data_stream;
+    } else if (line.find("LEGEND START") != std::string::npos) {
       current_stream = &legend_stream;
     } else if (line.find("PATTERNS START") != std::string::npos) {
       current_stream = &patterns_stream;
@@ -544,6 +590,8 @@ JamFileData load_jam_file(const std::string &path) {
     }
   }
 
+  unsigned int bpm = parse_data_section_for_bpm(data_stream);
+  std::cout << "Using BPM: " << bpm << "\n";
   auto legend_symbol_to_midi_note =
       parse_legend_to_symbol_to_note(legend_stream);
   auto [pattern_name_to_bars, pattern_name_to_channel] =
@@ -590,6 +638,6 @@ JamFileData load_jam_file(const std::string &path) {
     }
   }
 
-  return {pattern_name_to_bars, pattern_name_to_channel, arrangement,
+  return {bpm, pattern_name_to_bars, pattern_name_to_channel, arrangement,
           layers_of_pattern_to_weight};
 }

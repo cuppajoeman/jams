@@ -14,7 +14,6 @@
 #include "rt_midi_utils/rt_midi_utils.hpp"
 
 constexpr double epsilon = 1e-3;
-unsigned int bpm_new = 120;
 
 // Custom hash for time_point to use in unordered_map
 struct time_point_hash {
@@ -106,7 +105,7 @@ public:
   }
 
 public:
-  Bar(const std::string &pattern, int channel) {
+  Bar(const std::string &pattern, int channel, unsigned int bpm) {
     if (channel < 1 || channel > 16) {
       std::cerr << "Invalid channel number! Defaulting to channel 1.\n";
       channel = 1;
@@ -127,11 +126,11 @@ public:
 
     int num_matches = std::distance(groups_begin, groups_end);
 
-    bar_duration_sec = (double)60 / bpm_new;
+    bar_duration_sec = (double)60 / bpm;
     bar_element_duration_sec = bar_duration_sec / num_matches;
 
-    //std::cout << "bar_element_duration_sec " << bar_element_duration_sec
-    //          << std::endl;
+    // std::cout << "bar_element_duration_sec " << bar_element_duration_sec
+    //           << std::endl;
 
     std::regex note_regex(R"(\d+[',]*)");
 
@@ -215,19 +214,19 @@ public:
   }
 
   Pattern(const std::string &bar_sequence_str, unsigned int channel,
-          bool loop_forever, unsigned int num_repetitions = 0,
+          unsigned int bpm, bool loop_forever, unsigned int num_repetitions = 0,
           unsigned int start_bar_index = 0)
       : loop_forever(loop_forever), num_repetitions(num_repetitions),
         channel(channel), start_bar_index(start_bar_index) {
-    parse_and_store_bars({bar_sequence_str});
+    parse_and_store_bars({bar_sequence_str}, bpm);
   }
 
   Pattern(const std::vector<std::string> &bar_sequence_vec,
-          unsigned int channel, bool loop_forever,
+          unsigned int channel, unsigned int bpm, bool loop_forever,
           unsigned int num_repetitions = 0, unsigned int start_bar_index = 0)
       : loop_forever(loop_forever), num_repetitions(num_repetitions),
         channel(channel), start_bar_index(start_bar_index) {
-    parse_and_store_bars(bar_sequence_vec);
+    parse_and_store_bars(bar_sequence_vec, bpm);
   }
 
   friend std::ostream &operator<<(std::ostream &os, const Pattern &seq) {
@@ -247,7 +246,8 @@ public:
   }
 
 private:
-  void parse_and_store_bars(const std::vector<std::string> &bar_sequences) {
+  void parse_and_store_bars(const std::vector<std::string> &bar_sequences,
+                            unsigned int bpm) {
     for (const auto &bar_seq : bar_sequences) {
       std::stringstream ss(bar_seq);
       std::string bar_str;
@@ -255,7 +255,7 @@ private:
       while (std::getline(ss, bar_str, '|')) {
         bar_str = trim(bar_str);
         if (!bar_str.empty()) {
-          bars.emplace_back(bar_str, channel);
+          bars.emplace_back(bar_str, channel, bpm);
         }
       }
     }

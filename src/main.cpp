@@ -76,12 +76,12 @@ int main() {
   for (const PatternData &data : jam_data.arrangement) {
     const auto &bar_sequence = jam_data.pattern_name_to_bars.at(data.name);
     const auto &bar_channel = jam_data.pattern_name_to_channel.at(data.name);
-    Pattern p(bar_sequence, bar_channel, false, data.num_repeats,
+    Pattern p(bar_sequence, bar_channel, jam_data.bpm, false, data.num_repeats,
               data.start_bar);
     sequencer.add(p);
   }
 
-  sequencer.set_bpm(120);
+  sequencer.set_bpm(jam_data.bpm);
   while (true) {
     sequencer.process_current_bar();
   }
