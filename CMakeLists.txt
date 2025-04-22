@@ -11,6 +11,8 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 
 
 # RTMIDI: midi library
+
+set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "Build RtMidi as static")
 add_subdirectory(external_libraries/rtmidi)
 find_package(ftxui)
 

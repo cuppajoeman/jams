@@ -82,7 +82,7 @@ public:
     // wrap the whole thing in (...\s*)+ match one more more of these objects
     // with spaces between them
     std::regex pattern(R"((\s*((\((?:\s*\d+[',]*\s*)+\))|-)\s*)+)");
-    std::cout << str << std::endl;
+    // std::cout << str << std::endl;
     return std::regex_match(str, pattern);
   }
 
@@ -130,8 +130,8 @@ public:
     bar_duration_sec = (double)60 / bpm_new;
     bar_element_duration_sec = bar_duration_sec / num_matches;
 
-    std::cout << "bar_element_duration_sec " << bar_element_duration_sec
-              << std::endl;
+    //std::cout << "bar_element_duration_sec " << bar_element_duration_sec
+    //          << std::endl;
 
     std::regex note_regex(R"(\d+[',]*)");
 
@@ -155,7 +155,7 @@ public:
             std::chrono::duration<double>(bar_index * bar_element_duration_sec);
         MidiEventNext note_on_me(channel, bar_index, midi_note, 0.5, true,
                                  time_offset);
-        std::cout << "event: " << note_on_me << std::endl;
+        // std::cout << "event: " << note_on_me << std::endl;
         note_on_midi_events.push_back(note_on_me);
       }
 
@@ -396,13 +396,13 @@ public:
         continue;
       }
 
-      std::cout << "Processing bar sequence...\n";
+      // std::cout << "Processing bar sequence...\n";
       const auto &current_bar =
           bar_seq.bars[sequencer_bar_index % bar_seq.bars.size()];
 
-      std::cout << "Current bar index: " << sequencer_bar_index
-                << ", Number of bars in sequence: " << bar_seq.bars.size()
-                << '\n';
+      // std::cout << "Current bar index: " << sequencer_bar_index
+      //           << ", Number of bars in sequence: " << bar_seq.bars.size()
+      //           << '\n';
 
       for (const auto &note_on_event : current_bar.note_on_midi_events) {
         std::chrono::steady_clock::time_point note_on_time =
@@ -410,9 +410,9 @@ public:
             std::chrono::duration_cast<std::chrono::steady_clock::duration>(
                 note_on_event.bar_time_offset_sec);
 
-        std::cout << "Note ON event - Note: " << note_on_event.note
-                  << ", Time: " << note_on_time.time_since_epoch().count()
-                  << " ns\n";
+        // std::cout << "Note ON event - Note: " << note_on_event.note
+        //           << ", Time: " << note_on_time.time_since_epoch().count()
+        //           << " ns\n";
 
         // Add note on event
         time_to_midi_events[note_on_time].push_back(note_on_event);
@@ -428,9 +428,9 @@ public:
                                      note_on_event.bar_index,
                                      note_on_event.note, 0, false);
 
-        std::cout << "Note OFF event - Note: " << note_on_event.note
-                  << ", Time: " << note_off_time.time_since_epoch().count()
-                  << " ns\n";
+        // std::cout << "Note OFF event - Note: " << note_on_event.note
+        //           << ", Time: " << note_off_time.time_since_epoch().count()
+        //           << " ns\n";
 
         time_to_midi_events[note_off_time].push_back(note_off_event);
       }
@@ -447,19 +447,19 @@ public:
     using namespace std::chrono;
 
     if (is_paused) {
-      std::cout << "Sequencer is paused. Skipping bar processing.\n";
+      // std::cout << "Sequencer is paused. Skipping bar processing.\n";
       return;
     }
 
     steady_clock::time_point bar_start_time = steady_clock::now();
     steady_clock::time_point next_bar_time = bar_start_time + tick_duration;
 
-    std::cout << "processing bar: " << sequencer_bar_index << std::endl;
-    std::cout << "Tick duration: "
-              << std::chrono::duration_cast<std::chrono::duration<double>>(
-                     tick_duration)
-                     .count()
-              << " seconds\n";
+    // std::cout << "processing bar: " << sequencer_bar_index << std::endl;
+    // std::cout << "Tick duration: "
+    //           << std::chrono::duration_cast<std::chrono::duration<double>>(
+    //                  tick_duration)
+    //                  .count()
+    //           << " seconds\n";
 
     // Change unordered_map to map time_point to a vector of MidiEventNext
     std::unordered_map<steady_clock::time_point, std::vector<MidiEventNext>,
@@ -468,8 +468,8 @@ public:
             generate_note_events_for_current_bar_for_all_bar_sequences(
                 bar_start_time);
 
-    std::cout << "Time to MIDI events map built. Total events: "
-              << time_to_midi_events.size() << '\n';
+    // std::cout << "Time to MIDI events map built. Total events: "
+    //           << time_to_midi_events.size() << '\n';
 
     // Process all MIDI events scheduled within this bar
     while (steady_clock::now() < next_bar_time) {
@@ -483,10 +483,10 @@ public:
             if (event.is_note_on) {
               send_note_on(event.note, event.midi_velocity,
                            event.channel); // Assume velocity 50
-              std::cout << "Sending NOTE ON: " << event << "\n";
+              // std::cout << "Sending NOTE ON: " << event << "\n";
             } else {
               send_note_off(event.note, event.channel);
-              std::cout << "Sending NOTE OFF: " << event << "\n";
+              // std::cout << "Sending NOTE OFF: " << event << "\n";
             }
           }
 
@@ -497,12 +497,12 @@ public:
         }
       }
 
-      std::this_thread::sleep_for(milliseconds(1));
+      // std::this_thread::sleep_for(milliseconds(1));
     }
 
     sequencer_bar_index++;
     sequencer_bar_index %= largest_end_bar_for_any_pattern;
-    std::cout << "Just finished a bar\n";
+    // std::cout << "Just finished a bar\n";
   }
 
 private:

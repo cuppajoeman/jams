@@ -569,9 +569,7 @@ JamFileData load_jam_file(const std::string &path) {
     std::cout << multiline_input << std::endl;
     std::istringstream in_stream(multiline_input);
 
-    std::cout << "before" << std::endl;
     arrangement = parse_arrangement(in_stream, pattern_name_to_bars);
-    std::cout << "after" << std::endl;
 
     // Print the result
     for (size_t i = 0; i < result.size(); ++i) {
