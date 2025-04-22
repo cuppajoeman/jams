@@ -1,3 +1,6 @@
 [submodule "src/rt_midi_utils"]
 	path = src/rt_midi_utils
 	url = git@github.com:cpp-toolbox/rt_midi_utils.git
+[submodule "external_libraries/rtmidi"]
+	path = external_libraries/rtmidi
+	url = git@github.com:thestk/rtmidi.git
