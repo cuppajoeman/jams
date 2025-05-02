@@ -4,7 +4,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(jams)
 
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.c")
 
 # Add the main executable
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -14,6 +14,5 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 
 set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "Build RtMidi as static")
 add_subdirectory(external_libraries/rtmidi)
-find_package(ftxui)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE rtmidi ftxui::ftxui)
+target_link_libraries(${PROJECT_NAME} PRIVATE rtmidi)

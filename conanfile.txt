@@ -1,5 +1,7 @@
 [requires]
 ftxui/6.0.2
+openal-soft/1.23.1
+libsndfile/1.2.2
 [generators]
 CMakeDeps
 CMakeToolchain

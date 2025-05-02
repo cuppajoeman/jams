@@ -4,3 +4,9 @@
 [submodule "external_libraries/rtmidi"]
 	path = external_libraries/rtmidi
 	url = git@github.com:thestk/rtmidi.git
+[submodule "scripts"]
+	path = scripts
+	url = git@github.com:cpp-toolbox/scripts.git
+[submodule "src/utility/unique_id_generator"]
+	path = src/utility/unique_id_generator
+	url = git@github.com:cpp-toolbox/unique_id_generator.git
